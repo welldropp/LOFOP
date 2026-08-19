@@ -4,7 +4,7 @@ A complete, practical guide to installing, running, training, exporting, and dep
 its flagship detector **LOFOP-Detect**. This is the hands-on manual; for architecture and design
 rationale see [`docs/architecture.md`](docs/architecture.md) and the per-module docs it links.
 
-- **Version:** 1.2.0
+- **Version:** 1.2.1
 - **Python:** 3.9+
 - **Platforms:** Linux, macOS, Windows
 
@@ -85,8 +85,8 @@ Maintainers: release steps (PyPI + AUR) are in [`docs/packaging.md`](packaging.m
 ## 3. Verify your install
 
 ```bash
-lofop version                  # prints 1.2.0
-python -m pytest               # runs the test suite (308 passed, 3 skipped without GPU/TensorBoard)
+lofop version                  # prints 1.2.1
+python -m pytest               # runs the test suite (316 passed, 3 skipped without GPU/TensorBoard)
 ```
 
 Then run the self-contained demo — it generates its own data, trains LOFOP-Detect end to end, and
@@ -301,6 +301,20 @@ automatically from the dataset's annotations. Note: horizontal-flip
 augmentation is disabled for pose training (flipping would need left/right
 keypoint swapping), and `strong_augment` is not yet supported for seg/pose.
 ONNX export currently covers detection models only.
+
+### Inference NMS modes
+
+Every model (and `Detector(..., nms_mode=...)`) supports three
+duplicate-removal strategies at inference:
+
+| Mode | What it does | When to use |
+|---|---|---|
+| `greedy` (default) | classic class-aware NMS | general use; unchanged behavior |
+| `soft` | decays overlapping scores (gaussian, `soft_nms_sigma`) instead of dropping | crowded scenes with touching objects |
+| `free` | NMS-free: keeps only 3x3 local score peaks -- pure tensor math, no suppression loop | latency-critical paths; large candidate counts |
+
+Config keys: `model.nms_mode`, `model.soft_nms_sigma`. At runtime:
+`det.model.nms_mode = "soft"`.
 
 ### Training config
 

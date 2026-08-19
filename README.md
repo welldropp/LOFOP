@@ -14,7 +14,7 @@ modern computer-vision engineering practices while remaining self-contained.
 > C++ / optional CUDA), the LOFOP-Detect family (detection + segmentation + pose
 > variants), training engine (schedulers, early stopping, strong augmentation), full
 > CLI, Python SDK, and verified ONNX (fixed + dynamic shapes) / TensorRT export.
-> 308 tests passing with a coverage-gated CI. See
+> 316 tests passing with a coverage-gated CI. See
 > [`docs/architecture.md`](docs/architecture.md) for the subsystem map and
 > [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
@@ -60,6 +60,12 @@ installing, training, exporting, deploying, and troubleshooting LOFOP.
   TensorRT engine (`--format tensorrt --fp16`) via that same ONNX;
   `postprocess_dense` finishes inference torch-free with the C++ NMS, so serving hosts need only a
   runtime + the LOFOP core. Details: [`docs/deploy.md`](docs/deploy.md).
+- **C++ SDK + torch-free Python runtime** — the same detector runs from either language on one
+  exported model: `lofop::Detector model("model.onnx")` in C++ (no Python in the artifact) and
+  `from lofop.runtime import Detector` in Python (no torch). Both bind the *same* kernels
+  (letterbox, dense decode, class-aware NMS), so they cannot drift; a C ABI
+  (`lofop/lofop_c.h`) carries the same pipeline to Go/Rust/C#/Java. Details:
+  [`docs/cpp-sdk.md`](docs/cpp-sdk.md).
 - **Deployment scaffolding** — CPU / CUDA / ONNX Runtime Docker images ([`docker/`](docker/README.md)).
 
 ## Installation
@@ -129,6 +135,20 @@ for hit in det.predict("photo.jpg"):                  # boxes in original image 
 det.export("model.onnx")
 ```
 
+**Deploy in C++ or Python** — one exported model, two runtimes ([full guide](docs/cpp-sdk.md)):
+
+```cpp
+#include <lofop/lofop.hpp>                       // no Python, no PyTorch
+lofop::Detector model("model.onnx");
+for (const auto& hit : model.predict("image.ppm")) std::cout << hit.confidence;
+```
+
+```python
+from lofop.runtime import Detector               # no PyTorch
+model = Detector("model.onnx")
+results = model.predict("image.jpg")
+```
+
 Lower-level control remains fully public — registries, `Config`, `Trainer`, and the deploy
 functions are the same objects the SDK uses:
 
@@ -162,14 +182,17 @@ lofop/
   ops/ + csrc/   # native C++ IoU/NMS with Python fallback
   utils/         # model benchmarking (metric table, FLOPs, FPS)
   sdk.py         # high-level Python SDK: the Detector class (docs/sdk.md)
+  runtime/       # torch-free ONNX inference: Detector, Detection, Image
+  csrc/          # C++ kernels: box ops + shared letterbox preprocessing
   configs/       # packaged model family definitions (n, s, ex)
   cli.py         # `lofop` command: dataset / train / benchmark / export
+cpp/             # C++ inference SDK (CMake): headers, C ABI, tests, example
 configs/         # training config examples
 docker/          # CPU, CUDA, and ONNX Runtime images
 docs/            # architecture, per-module references, LOFOP-Detect design doc
 benchmarks/      # reusable performance measurement scripts
 examples/        # end-to-end runnable demos
-tests/           # pytest suite mirroring the package layout (308 tests)
+tests/           # pytest suite mirroring the package layout (316 tests)
 ```
 
 ## Development

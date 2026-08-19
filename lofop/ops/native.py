@@ -36,8 +36,12 @@ from lofop.core.logging import get_logger
 
 _LIB_STEM = "_lofop_ops"
 _CUDA_LIB_STEM = "_lofop_ops_cuda"
-_SOURCE = Path(__file__).resolve().parent.parent / "csrc" / "box_ops.cpp"
-_CUDA_SOURCE = Path(__file__).resolve().parent.parent / "csrc" / "box_ops.cu"
+_CSRC = Path(__file__).resolve().parent.parent / "csrc"
+_SOURCE = _CSRC / "box_ops.cpp"
+# Every translation unit compiled into the native library. Kept as a list so
+# new kernels are added by appending here; the C++ SDK links the same files.
+_SOURCES = [_SOURCE, _CSRC / "preprocess.cpp"]
+_CUDA_SOURCE = _CSRC / "box_ops.cu"
 _IS_WINDOWS = sys.platform.startswith("win")
 
 logger = get_logger(__name__)
@@ -75,12 +79,20 @@ def _compiler_candidates(explicit: str | None) -> list[str]:
     return [name for name in preference if shutil.which(name)] or preference
 
 
-def _build_command(compiler: str, source: Path, target: Path) -> tuple[list[str], Path | None]:
+def _build_command(
+    compiler: str, source: Path | list[Path], target: Path
+) -> tuple[list[str], Path | None]:
     """Build the compile command for a toolchain.
+
+    Args:
+        compiler: Compiler binary.
+        source: One source file, or a list of them compiled into one library.
+        target: Output library path.
 
     Returns the argv plus an optional working directory (MSVC scatters
     intermediate .obj/.lib files into cwd, so it runs in a temp dir).
     """
+    sources = [source] if isinstance(source, Path) else list(source)
     # Separator-agnostic basename so a Windows "C:\\VS\\cl.exe" path is
     # recognized even when parsed on a POSIX host (and vice versa).
     base = compiler.replace("\\", "/").rsplit("/", 1)[-1].lower()
@@ -89,7 +101,7 @@ def _build_command(compiler: str, source: Path, target: Path) -> tuple[list[str]
         workdir = Path(tempfile.mkdtemp(prefix="lofop_build_"))
         cmd = [
             compiler, "/nologo", "/O2", "/std:c++17", "/EHsc", "/LD",
-            str(source), f"/Fe:{target}", f"/Fo:{workdir}\\",
+            *[str(path) for path in sources], f"/Fe:{target}", f"/Fo:{workdir}\\",
         ]
         return cmd, workdir
     # GNU/Clang-style front end (g++, clang++, c++, MinGW g++).
@@ -100,7 +112,8 @@ def _build_command(compiler: str, source: Path, target: Path) -> tuple[list[str]
         cmd += ["-static-libgcc", "-static-libstdc++"]
     else:
         cmd.append("-fPIC")
-    cmd += [str(source), "-o", str(target)]
+    cmd += [str(path) for path in sources]
+    cmd += ["-o", str(target)]
     return cmd, None
 
 
@@ -134,7 +147,7 @@ def build_native(*, force: bool = False, compiler: str | None = None,
             continue
         for target in _candidate_paths():
             target.parent.mkdir(parents=True, exist_ok=True)
-            cmd, workdir = _build_command(binary, _SOURCE, target)
+            cmd, workdir = _build_command(binary, _SOURCES, target)
             try:
                 subprocess.run(cmd, check=True, capture_output=True, text=True, cwd=workdir)
             except FileNotFoundError:
@@ -244,6 +257,19 @@ def load_native() -> ctypes.CDLL | None:
             ctypes.POINTER(ctypes.c_float),
         ]
         lib.lofop_decode_dense.restype = ctypes.c_int32
+    if hasattr(lib, "lofop_letterbox"):
+        lib.lofop_letterbox.argtypes = [
+            ctypes.POINTER(ctypes.c_uint8), ctypes.c_int32, ctypes.c_int32, ctypes.c_int32,
+            ctypes.c_int32, ctypes.c_float,
+            ctypes.POINTER(ctypes.c_float), ctypes.POINTER(ctypes.c_float),
+        ]
+        lib.lofop_letterbox.restype = ctypes.c_int32
+    if hasattr(lib, "lofop_unletterbox_boxes"):
+        lib.lofop_unletterbox_boxes.argtypes = [
+            ctypes.POINTER(ctypes.c_float), ctypes.c_int32, ctypes.POINTER(ctypes.c_float),
+            ctypes.c_int32, ctypes.c_int32, ctypes.POINTER(ctypes.c_float),
+        ]
+        lib.lofop_unletterbox_boxes.restype = ctypes.c_int32
     _loaded = lib
     logger.debug("Loaded native ops library from %s", path)
     return lib

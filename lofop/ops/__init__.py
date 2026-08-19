@@ -9,8 +9,10 @@ parallel ops on NVIDIA GPUs. :func:`backend` reports the active tier.
 
 from lofop.ops.boxes import batched_nms, decode_dense, iou_matrix, nms, soft_nms
 from lofop.ops.native import backend, build_native, find_library, load_native, load_native_cuda
+from lofop.ops.preprocess import LetterboxMeta, letterbox, unletterbox_boxes
 
 __all__ = [
     "iou_matrix", "nms", "batched_nms", "soft_nms", "decode_dense",
+    "letterbox", "unletterbox_boxes", "LetterboxMeta",
     "backend", "build_native", "find_library", "load_native", "load_native_cuda",
 ]

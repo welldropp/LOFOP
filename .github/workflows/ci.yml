@@ -70,6 +70,25 @@ jobs:
       - name: Run tests with coverage (fails under the configured floor)
         run: python -m pytest tests/ --cov --cov-report=term-missing
 
+  # The C++ SDK builds and tests on every platform LOFOP supports, with no
+  # ONNX Runtime: the pipeline it implements (preprocessing, decoding,
+  # suppression, coordinate mapping) is exercised through a stub engine, so a
+  # regression is caught without a model or a GPU in CI.
+  cpp:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S cpp -B build -DCMAKE_BUILD_TYPE=Release
+      - name: Build
+        run: cmake --build build --config Release
+      - name: Test
+        run: ctest --test-dir build --build-config Release --output-on-failure
+
   package:
     runs-on: ubuntu-latest
     steps:

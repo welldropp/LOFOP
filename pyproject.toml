@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lofop"
-version = "1.2.0"
+version = "1.2.1"
 description = "LOFOP: a modular, enterprise-grade computer vision framework."
 readme = "README.md"
 requires-python = ">=3.9"

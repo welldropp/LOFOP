@@ -338,12 +338,22 @@ def decode_dense(
     count = n * num_classes
     if lib is not None and hasattr(lib, "lofop_decode_dense"):
         c_scores, keepalive = _c_float_view(class_scores, count)
-        if c_scores is None:
+        copied = c_scores is None or isinstance(c_scores, ctypes.Array)
+        if copied and native is not True:
+            # Measured: flattening N*C Python floats into a C buffer costs
+            # more than the pure Python argmax loop, so the native kernel is
+            # auto-selected only for zero-copy inputs (contiguous float32
+            # numpy arrays / CPU tensors -- the deployment hot path, 35-48x).
+            c_scores = None
+        if c_scores is None and native is not True:
+            lib = None
+        elif c_scores is None:
             flat = [float(v) for row in class_scores for v in row]
             if len(flat) != count:
                 raise LofopError("class_scores rows must have equal length")
             c_scores = (ctypes.c_float * count)(*flat)
             keepalive = c_scores
+    if lib is not None and hasattr(lib, "lofop_decode_dense"):
         idx = (ctypes.c_int32 * n)()
         labels = (ctypes.c_int32 * n)()
         out_scores = (ctypes.c_float * n)()

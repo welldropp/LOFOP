@@ -6,7 +6,28 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-07-28
+### Added
+- C++ inference SDK (`cpp/`): `lofop::Detector`, `lofop::Image`,
+  `lofop::Detection`, and a pluggable `lofop::Engine` (ONNX Runtime backend
+  included), plus a flat C ABI (`lofop/lofop_c.h`) for Go/Rust/C#/Java
+  bindings. Builds with CMake and any C++17 compiler; ONNX Runtime is a
+  compile-time option, so the library and its tests build without it.
+- Torch-free Python inference runtime (`lofop.runtime`): `Detector`,
+  `Detection`, and `Image` mirroring the C++ types, running an exported
+  `model.onnx` through ONNX Runtime with no PyTorch import.
+- Shared image preprocessing (`lofop/csrc/preprocess.cpp`,
+  `lofop.ops.letterbox` / `unletterbox_boxes`): aspect-preserving resize with
+  padding and its exact inverse, defined once in C++ and bound by both
+  runtimes, with a pure Python reference for compiler-free installs. Parity
+  between kernel and reference is asserted to float32 epsilon in CI.
+- CI: the C++ SDK is built and tested on Linux, Windows, and macOS.
+
+### Changed
+- The native ops library now compiles from multiple translation units
+  (`box_ops.cpp` + `preprocess.cpp`); previously built libraries still load,
+  as new symbols are bound behind `hasattr` guards.
+
+## [1.2.1] - 2026-07-31
 
 ### Added
 - Instance segmentation: `lofop-detect-{n,s,ex}-seg` variants
@@ -27,6 +48,10 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Ops: optional CUDA tier (`build_native(cuda=True)`, needs nvcc) for
   pairwise IoU and dense decode on NVIDIA GPUs; `backend()` now reports
   `cuda`/`native`/`python`, always falling back cleanly.
+- Inference: selectable duplicate-removal via `nms_mode` on every model and
+  `Detector` -- `"greedy"` (default, unchanged), `"soft"` (Soft-NMS score
+  decay), or `"free"` (NMS-free 3x3 peak selection: pure tensor math, no
+  suppression loop).
 
 ### Changed
 - ONNX export raises a clear error for segmentation/pose models (their
@@ -83,8 +108,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Python SDK (`Detector`) and the `lofop` CLI.
 - Packaging for PyPI (wheel/sdist) and AUR; CI and release workflows.
 
-[Unreleased]: https://github.com/tedo001/LOFOP/compare/v1.2.0...HEAD
-[1.2.0]: https://github.com/tedo001/LOFOP/compare/v1.1.3...v1.2.0
+[Unreleased]: https://github.com/tedo001/LOFOP/compare/v1.2.1...HEAD
+[1.2.1]: https://github.com/tedo001/LOFOP/compare/v1.1.3...v1.2.1
 [1.1.3]: https://github.com/tedo001/LOFOP/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/tedo001/LOFOP/compare/v0.1.0...v1.1.2
 [0.1.0]: https://github.com/tedo001/LOFOP/releases/tag/v0.1.0

@@ -107,6 +107,9 @@ class Detector:
         num_keypoints: Keypoints per instance for pose variants (default 17,
             the COCO person skeleton). Ignored by detection/segmentation
             models.
+        nms_mode: Duplicate-removal strategy: ``"greedy"`` (default),
+            ``"soft"`` (score decay, better in crowds), or ``"free"``
+            (NMS-free peak selection -- no suppression loop at all).
 
     Attributes:
         model: The underlying :class:`LofopDetect` torch module -- fully
@@ -123,6 +126,7 @@ class Detector:
         image_size: int = 640,
         device: str | None = None,
         num_keypoints: int | None = None,
+        nms_mode: str | None = None,
     ) -> None:
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.image_size = image_size
@@ -143,6 +147,13 @@ class Detector:
         self.class_names = list(class_names) if class_names else [
             f"class_{i}" for i in range(self.model.head.num_classes)
         ]
+        if nms_mode is not None:
+            if nms_mode not in LofopDetect._NMS_MODES:
+                raise ModelError(
+                    "Unknown nms_mode",
+                    context={"got": nms_mode, "known": list(LofopDetect._NMS_MODES)},
+                )
+            self.model.nms_mode = nms_mode
         if checkpoint is not None:
             self.model.load_state_dict(load_checkpoint_state(checkpoint))
             logger.info("Loaded weights from %s", checkpoint)

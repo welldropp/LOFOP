@@ -18,7 +18,7 @@ from lofop.core.exceptions import ModelError
 from lofop.models.assigner import DynamicTopKAssigner
 from lofop.models.head import ApexHead
 from lofop.models.losses import giou_loss, sigmoid_focal_loss
-from lofop.ops import nms
+from lofop.ops import nms, soft_nms
 from lofop.ops.boxes import CLASS_OFFSET
 from lofop.registries import MODELS
 
@@ -49,7 +49,16 @@ class LofopDetect(nn.Module):
         score_threshold: Minimum score for a detection at inference.
         nms_iou: IoU threshold for class-aware NMS.
         max_detections: Detections kept per image after NMS.
+        nms_mode: Duplicate-removal strategy at inference. ``"greedy"``
+            (default) is classic class-aware NMS; ``"soft"`` decays
+            overlapping scores instead of dropping (better in crowds);
+            ``"free"`` is NMS-free -- keep only locations that are the local
+            score peak of their 3x3 neighborhood on their pyramid level, so
+            inference is pure tensor math with no suppression loop at all.
+        soft_nms_sigma: Gaussian decay width for ``nms_mode="soft"``.
     """
+
+    _NMS_MODES = ("greedy", "soft", "free")
 
     def __init__(
         self,
@@ -60,11 +69,17 @@ class LofopDetect(nn.Module):
         score_threshold: float = 0.05,
         nms_iou: float = 0.6,
         max_detections: int = 300,
+        nms_mode: str = "greedy",
+        soft_nms_sigma: float = 0.5,
     ) -> None:
         super().__init__()
         if not isinstance(head, ApexHead):
             got = type(head).__name__
             raise ModelError("LofopDetect requires an ApexHead", context={"got": got})
+        if nms_mode not in self._NMS_MODES:
+            raise ModelError(
+                "Unknown nms_mode", context={"got": nms_mode, "known": list(self._NMS_MODES)}
+            )
         self.backbone = backbone
         self.neck = neck
         self.head = head
@@ -73,6 +88,8 @@ class LofopDetect(nn.Module):
         self.score_threshold = score_threshold
         self.nms_iou = nms_iou
         self.max_detections = max_detections
+        self.nms_mode = nms_mode
+        self.soft_nms_sigma = soft_nms_sigma
         self._channels_last = False
 
     def _features(self, images: Tensor) -> list[Tensor]:
@@ -228,31 +245,68 @@ class LofopDetect(nn.Module):
         points, _ = self.head.level_points(cls_out)
         cls, box, quality = self._flatten(cls_out, box_out, quality_out)
         scores_all = (cls.sigmoid() * quality.sigmoid().unsqueeze(-1)).sqrt()
+        peaks = self._peak_mask(cls_out, quality_out) if self.nms_mode == "free" else None
 
         results = []
         for image_index in range(images.shape[0]):
             scores, labels = scores_all[image_index].max(dim=1)
             keep_mask = scores > self.score_threshold
+            if peaks is not None:
+                keep_mask &= peaks[image_index]
             if not keep_mask.any():
                 results.append(self._empty_result(images))
                 continue
             location_index = keep_mask.nonzero(as_tuple=False).squeeze(1)
             boxes = self.head.decode_boxes(points[keep_mask], box[image_index][keep_mask])
             scores, labels = scores[keep_mask], labels[keep_mask]
-            # Class-aware NMS via the coordinate-offset shift done in tensor
-            # math; contiguous float32 tensors hit the zero-copy native path
-            # in lofop.ops instead of a per-element Python list conversion.
-            shifted = boxes + (labels.to(boxes.dtype) * CLASS_OFFSET).unsqueeze(1)
-            keep = nms(
-                shifted.contiguous(), scores.contiguous(),
-                iou_threshold=self.nms_iou, max_keep=self.max_detections,
-            )
-            index = torch.as_tensor(keep, dtype=torch.long, device=images.device)
+            if self.nms_mode == "free":
+                # Peak selection already removed duplicates; just rank.
+                index = scores.argsort(descending=True)
+                if self.max_detections > 0:
+                    index = index[: self.max_detections]
+            elif self.nms_mode == "soft":
+                shifted = boxes + (labels.to(boxes.dtype) * CLASS_OFFSET).unsqueeze(1)
+                keep, kept_scores = soft_nms(
+                    shifted.contiguous(), scores.contiguous(),
+                    sigma=self.soft_nms_sigma, score_threshold=self.score_threshold,
+                    max_keep=self.max_detections,
+                )
+                index = torch.as_tensor(keep, dtype=torch.long, device=images.device)
+                scores = torch.as_tensor(
+                    kept_scores, dtype=boxes.dtype, device=images.device
+                )
+                results.append({
+                    "boxes": boxes[index], "scores": scores, "labels": labels[index],
+                    "locations": location_index[index],
+                })
+                continue
+            else:
+                # Class-aware NMS via the coordinate-offset shift done in
+                # tensor math; contiguous float32 tensors hit the zero-copy
+                # native path in lofop.ops instead of a per-element Python
+                # list conversion.
+                shifted = boxes + (labels.to(boxes.dtype) * CLASS_OFFSET).unsqueeze(1)
+                keep = nms(
+                    shifted.contiguous(), scores.contiguous(),
+                    iou_threshold=self.nms_iou, max_keep=self.max_detections,
+                )
+                index = torch.as_tensor(keep, dtype=torch.long, device=images.device)
             results.append({
                 "boxes": boxes[index], "scores": scores[index], "labels": labels[index],
                 "locations": location_index[index],
             })
         return results
+
+    def _peak_mask(self, cls_out: list[Tensor], quality_out: list[Tensor]) -> Tensor:
+        """(B, N) mask of locations that are their 3x3 neighborhood's score
+        peak on their own pyramid level -- the NMS-free selection rule."""
+        masks = []
+        for cls_map, quality_map in zip(cls_out, quality_out):
+            fused = (cls_map.sigmoid().amax(dim=1, keepdim=True)
+                     * quality_map.sigmoid()).sqrt()
+            pooled = F.max_pool2d(fused, kernel_size=3, stride=1, padding=1)
+            masks.append((fused >= pooled).squeeze(1).flatten(1))
+        return torch.cat(masks, dim=1)
 
     @staticmethod
     def _empty_result(images: Tensor) -> dict[str, Any]:

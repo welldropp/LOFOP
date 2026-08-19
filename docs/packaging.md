@@ -38,8 +38,8 @@ It uses **PyPI Trusted Publishing (OIDC)** — no API token is stored in the rep
 ```bash
 # 1. Bump the version in lofop/version.py AND pyproject.toml, commit, merge to main.
 # 2. Tag and push:
-git tag v1.2.0      # match the version in pyproject.toml
-git push origin v1.2.0
+git tag v1.2.1      # match the version in pyproject.toml
+git push origin v1.2.1
 ```
 
 The workflow builds, checks, and publishes. `pip install lofop` serves it within a minute.
@@ -65,7 +65,7 @@ makepkg -si                                 # optional: build+install locally to
 # Push to the AUR (requires an AUR account + registered SSH key):
 git clone ssh://aur@aur.archlinux.org/lofop.git aur-lofop
 cp PKGBUILD .SRCINFO aur-lofop/
-cd aur-lofop && git commit -am "lofop 1.2.0" && git push
+cd aur-lofop && git commit -am "lofop 1.2.1" && git push
 ```
 
 After that, `yay -S lofop` (or any AUR helper) installs it. Optional features map to AUR
