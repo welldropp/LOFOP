@@ -1,4 +1,4 @@
-"""Micro-benchmarks for the LOFOP core engine.
+#lllllll"""Micro-benchmarks for the LOFOP core engine.
 
 Measures the per-operation cost of the hot paths every subsystem will sit on:
 registry lookup/build, config construction/loading/access, event emission,
