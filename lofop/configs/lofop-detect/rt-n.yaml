@@ -1,0 +1,14 @@
+# LOFOP-Detect RT-nano: RF-DETR + RT-DETR hybrid edge variant.
+extends: [rt-base.yaml]
+
+model:
+  backbone:
+    widths: [32, 64, 128, 256]
+    depths: [1, 1, 2, 1]
+  neck:
+    in_channels: [64, 128, 256]
+    width: 64
+    num_heads: 4
+    depth: 1
+  head:
+    width: 64

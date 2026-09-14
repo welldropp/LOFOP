@@ -1,0 +1,18 @@
+# Shared settings for the LOFOP-Detect-RT family (RT-DETR + RF-DETR hybrid).
+num_classes: 80
+
+model:
+  type: model/LofopDetect
+  score_threshold: 0.05
+  nms_iou: 0.6
+  max_detections: 300
+  backbone:
+    type: backbone/RFRidgeNet
+    expansion: 2.0
+  neck:
+    type: neck/HybridEncoder
+  head:
+    type: head/ApexHead
+    num_classes: ${num_classes}
+    strides: [8, 16, 32]
+    num_convs: 2

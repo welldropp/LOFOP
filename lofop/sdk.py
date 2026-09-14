@@ -20,7 +20,7 @@ lower-level API remains public for users who need more control. Requires the
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Union
 
@@ -226,6 +226,98 @@ class Detector:
             masks=masks,
             keypoints=keypoints,
         )
+
+    def track(
+        self,
+        source: str | Path | Iterable[Any],
+        *,
+        score_threshold: float = 0.25,
+        track_thresh: float = 0.5,
+        low_thresh: float = 0.1,
+        match_thresh: float = 0.8,
+        track_buffer: int = 30,
+        frame_rate: int = 30,
+    ) -> Iterator[Detections]:
+        """Detect and track objects across a video or image sequence using ByteTrack.
+
+        Args:
+            source: Video file path, directory of images, or frame iterable.
+            score_threshold: Candidate detection confidence threshold.
+            track_thresh: Minimum score to activate a new track.
+            low_thresh: Minimum score to recover tracks in the second association stage.
+            match_thresh: Maximum IoU distance threshold for Hungarian matching.
+            track_buffer: Frames to keep lost tracks alive before termination.
+            frame_rate: Frame rate of the video sequence.
+
+        Yields:
+            One :class:`~lofop.deploy.postprocess.Detections` per frame with
+            ``tracker_ids`` populated.
+        """
+        from lofop.tracking.byte_tracker import ByteTracker
+
+        tracker = ByteTracker(
+            track_thresh=track_thresh,
+            low_thresh=low_thresh,
+            match_thresh=match_thresh,
+            frame_rate=frame_rate,
+            track_buffer=track_buffer,
+        )
+
+        frames = self._iter_frames(source)
+        old_threshold = self.model.score_threshold
+        if score_threshold is not None:
+            self.model.score_threshold = min(score_threshold, low_thresh)
+        try:
+            for frame in frames:
+                det = self._predict_one(frame)
+                tracks = tracker.update(det.boxes, det.scores, det.labels)
+                if tracks:
+                    track_boxes = [t.tlbr.tolist() for t in tracks]
+                    track_scores = [float(t.score) for t in tracks]
+                    track_labels = [int(t.class_id) for t in tracks]
+                    track_ids = [int(t.track_id) for t in tracks]
+                else:
+                    track_boxes, track_scores, track_labels, track_ids = [], [], [], []
+
+                yield Detections(
+                    boxes=track_boxes,
+                    scores=track_scores,
+                    labels=track_labels,
+                    masks=None,
+                    keypoints=None,
+                    tracker_ids=track_ids,
+                )
+        finally:
+            self.model.score_threshold = old_threshold
+
+    def _iter_frames(self, source: Any) -> Iterator[Any]:
+        if isinstance(source, (str, Path)):
+            path = Path(source)
+            if path.suffix.lower() in {".mp4", ".avi", ".mov", ".mkv", ".webm"}:
+                try:
+                    import cv2
+
+                    cap = cv2.VideoCapture(str(path))
+                    try:
+                        while cap.isOpened():
+                            ret, frame = cap.read()
+                            if not ret:
+                                break
+                            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                            yield Image.fromarray(rgb)
+                    finally:
+                        cap.release()
+                    return
+                except ImportError:
+                    pass
+        if isinstance(source, (list, tuple)):
+            yield from source
+            return
+        is_tensor_or_img = isinstance(source, (str, Path, Image.Image, torch.Tensor))
+        if hasattr(source, "__iter__") and not is_tensor_or_img:
+            yield from source
+            return
+        yield source
 
     def _load_image(self, source: ImageSource) -> tuple[torch.Tensor, tuple[int, int]]:
         if isinstance(source, torch.Tensor):

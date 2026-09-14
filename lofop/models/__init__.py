@@ -12,16 +12,22 @@ from lofop.models.assigner import DynamicTopKAssigner
 from lofop.models.backbone import RidgeNet
 from lofop.models.detector import LofopDetect
 from lofop.models.head import ApexHead
+from lofop.models.hybrid_encoder import AIFI, HybridEncoder
 from lofop.models.losses import giou_loss, pairwise_iou, sigmoid_focal_loss
 from lofop.models.neck import DeltaFusion
 from lofop.models.pose_head import VertexHead
 from lofop.models.poser import LofopPose
+from lofop.models.rf_blocks import ReceptiveFieldBlock, RFRidgeNet
 from lofop.models.seg_head import StencilHead
 from lofop.models.segmenter import LofopSegment
 
 __all__ = [
     "RidgeNet",
+    "RFRidgeNet",
+    "ReceptiveFieldBlock",
     "DeltaFusion",
+    "HybridEncoder",
+    "AIFI",
     "ApexHead",
     "StencilHead",
     "VertexHead",
@@ -33,3 +39,4 @@ __all__ = [
     "giou_loss",
     "pairwise_iou",
 ]
+

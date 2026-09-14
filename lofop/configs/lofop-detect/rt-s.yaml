@@ -1,0 +1,14 @@
+# LOFOP-Detect RT-small: RF-DETR + RT-DETR hybrid balanced variant.
+extends: [rt-base.yaml]
+
+model:
+  backbone:
+    widths: [48, 96, 192, 384]
+    depths: [1, 2, 4, 2]
+  neck:
+    in_channels: [96, 192, 384]
+    width: 96
+    num_heads: 4
+    depth: 1
+  head:
+    width: 96

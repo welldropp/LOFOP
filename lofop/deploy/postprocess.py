@@ -30,6 +30,8 @@ class Detections:
         keypoints: Optional per-detection keypoints -- (K, num_keypoints, 3)
             ``(x, y, visibility)`` rows when produced by a pose model, else
             ``None``.
+        tracker_ids: Optional K persistent integer tracking IDs when produced
+            by a tracker or video inference, else ``None``.
     """
 
     boxes: list[list[float]]
@@ -37,9 +39,16 @@ class Detections:
     labels: list[int]
     masks: Any = None
     keypoints: Any = None
+    tracker_ids: list[int] | None = None
 
     def __len__(self) -> int:
         return len(self.scores)
+
+    def to_supervision(self, class_names: Sequence[str] | None = None) -> Any:
+        """Convert to a supervision.Detections object."""
+        from lofop.tracking.adapters import to_supervision
+
+        return to_supervision(self, class_names=class_names)
 
 
 def postprocess_dense(
