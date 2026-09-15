@@ -6,6 +6,40 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [1.2.2] - 2026-09-15
+
+### Added
+- NMS-free detection: `lofop-detect-{q-n,q-s}` variants (`model/LofopQuery`
+  + `head/SlateHead`). A fixed slate of query slots is matched one-to-one
+  with ground truth during training (`PivotMatcher`), so inference emits at
+  most one box per object and runs **no suppression pass at all** -- no IoU
+  loop, no score decay, no peak test.
+- Tracking: `lofop.tracking` -- `MotionEstimator` (constant-velocity Kalman
+  filter over `[cx, cy, w, h]` and velocities, written from the estimator
+  equations), IoU association built on LOFOP's native C++/CUDA kernel, and
+  `LofopTracker`, a confidence-tiered tracker with track lifecycle
+  management. Exposed through `Detector.track()`.
+- Ops: `lofop.ops.assignment` -- exact `optimal_assignment` (shortest
+  augmenting path) and `greedy_assignment`, in pure Python with no scipy.
+- Backbone: `backbone/SwiftNet`, an inverted-residual edge backbone with
+  squeeze-excite on the deepest stages and ReLU6 for clean INT8
+  quantisation. Variants `mb-n`, `mb-s`, and `mbq-n`.
+- Ecosystem: `Detections.to_supervision()` and
+  `lofop.tracking.from_supervision()` bridge to the supervision library
+  through its public API; no supervision code is vendored.
+- Data: `Detections.tracker_ids` carries persistent identities.
+- Packaging: `lofop[tracking]` and `lofop[supervision]` extras. numpy,
+  scipy and supervision are never imported at module scope, so a stock
+  `pip install lofop` is unaffected; missing extras raise `LofopError`
+  naming the exact install command.
+- Project: a `NOTICE` file recording that LOFOP contains no third-party
+  source, and `tests/test_dependency_hygiene.py`, which fails the build on
+  a module-scope optional import, an undeclared extra, or a copyleft
+  marker anywhere in the package.
+
+### Changed
+- ONNX/TensorRT export raises a clear error for the query variants; dense
+  export is unchanged.
 ### Added
 - C++ inference SDK (`cpp/`): `lofop::Detector`, `lofop::Image`,
   `lofop::Detection`, and a pluggable `lofop::Engine` (ONNX Runtime backend
@@ -108,7 +142,8 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Python SDK (`Detector`) and the `lofop` CLI.
 - Packaging for PyPI (wheel/sdist) and AUR; CI and release workflows.
 
-[Unreleased]: https://github.com/tedo001/LOFOP/compare/v1.2.1...HEAD
+[Unreleased]: https://github.com/tedo001/LOFOP/compare/v1.2.2...HEAD
+[1.2.2]: https://github.com/tedo001/LOFOP/compare/v1.2.1...v1.2.2
 [1.2.1]: https://github.com/tedo001/LOFOP/compare/v1.1.3...v1.2.1
 [1.1.3]: https://github.com/tedo001/LOFOP/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/tedo001/LOFOP/compare/v0.1.0...v1.1.2

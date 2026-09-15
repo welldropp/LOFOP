@@ -1,0 +1,14 @@
+# SwiftNet nano: inverted-residual backbone on the dense ApexHead.
+extends: [base.yaml]
+
+model:
+  backbone:
+    type: backbone/SwiftNet
+    widths: [24, 48, 96, 192]
+    depths: [1, 2, 2, 1]
+    expansion: 4.0
+  neck:
+    in_channels: [48, 96, 192]
+    width: 64
+  head:
+    width: 64

@@ -1,0 +1,23 @@
+# Shared settings for the NMS-free query family (LofopQuery + SlateHead).
+# Inference emits at most one box per object, so no suppression runs at all.
+num_classes: 80
+
+model:
+  type: model/LofopQuery
+  image_size: 640
+  score_threshold: 0.25
+  max_detections: 100
+  class_weight: 2.0
+  box_weight: 5.0
+  giou_weight: 2.0
+  backbone:
+    type: backbone/RidgeNet
+    expansion: 2.0
+  neck:
+    type: neck/DeltaFusion
+  head:
+    type: head/SlateHead
+    num_classes: ${num_classes}
+    num_queries: 100
+    num_layers: 3
+    num_heads: 4

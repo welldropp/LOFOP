@@ -1,0 +1,13 @@
+# NMS-free nano: edge-first query detector.
+extends: [q-base.yaml]
+
+model:
+  backbone:
+    widths: [32, 64, 128, 256]
+    depths: [1, 1, 2, 1]
+  neck:
+    in_channels: [64, 128, 256]
+    width: 64
+  head:
+    width: 64
+    feedforward: 128

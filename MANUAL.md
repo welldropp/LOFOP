@@ -4,7 +4,7 @@ A complete, practical guide to installing, running, training, exporting, and dep
 its flagship detector **LOFOP-Detect**. This is the hands-on manual; for architecture and design
 rationale see [`docs/architecture.md`](docs/architecture.md) and the per-module docs it links.
 
-- **Version:** 1.2.1
+- **Version:** 1.2.2
 - **Python:** 3.9+
 - **Platforms:** Linux, macOS, Windows
 
@@ -85,8 +85,8 @@ Maintainers: release steps (PyPI + AUR) are in [`docs/packaging.md`](packaging.m
 ## 3. Verify your install
 
 ```bash
-lofop version                  # prints 1.2.1
-python -m pytest               # runs the test suite (316 passed, 3 skipped without GPU/TensorBoard)
+lofop version                  # prints 1.2.2
+python -m pytest               # runs the test suite (446 passed, 3 skipped without GPU/TensorBoard)
 ```
 
 Then run the self-contained demo — it generates its own data, trains LOFOP-Detect end to end, and
@@ -301,6 +301,94 @@ automatically from the dataset's annotations. Note: horizontal-flip
 augmentation is disabled for pose training (flipping would need left/right
 keypoint swapping), and `strong_augment` is not yet supported for seg/pose.
 ONNX export currently covers detection models only.
+
+### NMS-free query variants
+
+`q-n` and `q-s` (and `mbq-n` on the SwiftNet backbone) replace the dense
+ApexHead with **SlateHead**: a fixed slate of 100 query slots. During training
+`PivotMatcher` assigns each ground-truth object to exactly one slot, so the
+slate learns to divide the image between its slots. At inference the model
+therefore emits at most one box per object and **runs no suppression at all**
+-- no IoU pass, no score decay, no peak test.
+
+```python
+from lofop import Detector
+det = Detector("lofop-detect-q-n", num_classes=80)
+det.train(train_data=data, epochs=100)
+for hit in det.predict("photo.jpg"):
+    print(hit.boxes)          # already duplicate-free
+```
+
+Trade-offs to know:
+
+- Post-processing cost is fixed, not proportional to scene density -- an
+  advantage in crowds, neutral on sparse images.
+- The slate size caps detections per image. 100 slots is ample for ordinary
+  scenes; raise `head.num_queries` for dense crowd datasets.
+- Set-prediction heads converge more slowly than dense heads, so budget more
+  epochs than an equivalent `n`/`s` run.
+- `nms_mode` does not apply and is rejected with a clear error.
+- ONNX export does not yet cover this family.
+
+### Tracking
+
+`Detector.track()` turns per-frame detections into persistent identities.
+
+```bash
+pip install "lofop[tracking]"
+```
+
+```python
+from lofop import Detector
+det = Detector("lofop-detect-n", num_classes=80)
+for frame in det.track(frame_paths):          # any iterable of frames
+    print(frame.tracker_ids, frame.boxes)
+```
+
+How it works: a constant-velocity Kalman filter (`MotionEstimator`) predicts
+each track's `[cx, cy, w, h]` forward, LOFOP's native IoU kernel builds the
+cost matrix, and LOFOP's own exact assignment solver matches tracks to
+detections. Matching runs in two confidence tiers -- strong detections can
+open and continue tracks, weak ones may only continue them -- so the
+low-confidence tail sustains tracks through occlusion without inventing
+identities.
+
+| Argument | Meaning |
+|---|---|
+| `score_threshold` | detector threshold; keep it below `strong_threshold` so the weak tier has input |
+| `strong_threshold` | at or above this, a detection can open a track |
+| `weak_threshold` | above this but below strong, it may only continue one |
+| `max_cost` | association ceiling as `1 - IoU` |
+| `grace_frames` | frames a track survives unmatched before ending |
+| `confirm_after` | matching frames before a new track is reported |
+| `class_aware` | forbid associations across classes |
+
+Tracks move through `Tentative` -> `Active` -> `Dormant` -> `Ended`. Only
+`Active` tracks are returned. LOFOP does not decode video itself; pass frames
+from whichever reader you already use.
+
+### supervision bridge
+
+```bash
+pip install "lofop[supervision]"
+```
+
+```python
+sv_detections = detections.to_supervision()      # LOFOP -> supervision
+from lofop.tracking import from_supervision
+lofop_detections = from_supervision(sv_detections)
+```
+
+Boxes, scores, labels, masks and tracker ids cross over. LOFOP vendors no
+supervision code and uses only its public API.
+
+### SwiftNet edge backbone
+
+`mb-n` / `mb-s` swap RidgeNet for **SwiftNet**, an inverted-residual backbone
+(expand pointwise, filter depthwise, project down) with squeeze-excite on the
+deepest two stages and ReLU6 activations that quantise cleanly to INT8. Use it
+when CPU or NPU latency matters more than peak accuracy; `mbq-n` combines it
+with the NMS-free head for the leanest end-to-end variant.
 
 ### Inference NMS modes
 
@@ -549,6 +637,10 @@ is on PATH) or run from a *Developer PowerShell for Visual Studio* (so `cl.exe` 
 call `build_native()`. Without a compiler you simply stay on the Python path — nothing breaks.
 
 ## 11. Python SDK
+
+> For the complete SDK reference — every class, every argument,
+> from first detection to extending the framework — see the
+> **[SDK Book](SDK_BOOK.md)**. This section is the short tour.
 
 The high-level API is one class — full reference with every argument documented:
 [`docs/sdk.md`](docs/sdk.md).

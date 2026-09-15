@@ -20,7 +20,7 @@ lower-level API remains public for users who need more control. Requires the
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Iterable, Iterator, Sequence
 from pathlib import Path
 from typing import Any, Union
 
@@ -34,6 +34,7 @@ from lofop.core.logging import get_logger
 from lofop.data.dataset import Dataset
 from lofop.deploy.postprocess import Detections
 from lofop.models.detector import LofopDetect
+from lofop.models.query_detector import LofopQuery
 from lofop.registries import HUB
 from lofop.training.torch_data import image_to_tensor
 
@@ -42,7 +43,13 @@ _VARIANTS = (
     "n", "s", "ex",
     "n-seg", "s-seg", "ex-seg",
     "n-pose", "s-pose", "ex-pose",
+    "q-n", "q-s",
+    "mb-n", "mb-s", "mbq-n",
 )
+
+# Every model the SDK can drive. LofopQuery is not a LofopDetect subclass --
+# it is a separate set-prediction model with the same predict/train contract.
+_DETECTOR_TYPES = (LofopDetect, LofopQuery)
 
 ImageSource = Union[str, Path, "Image.Image", torch.Tensor]
 
@@ -118,7 +125,7 @@ class Detector:
 
     def __init__(
         self,
-        model: str | Path | Config | dict | LofopDetect = "lofop-detect-s",
+        model: str | Path | Config | dict | LofopDetect | LofopQuery = "lofop-detect-s",
         *,
         num_classes: int = 80,
         checkpoint: str | Path | None = None,
@@ -130,7 +137,7 @@ class Detector:
     ) -> None:
         self.device = torch.device(device or ("cuda" if torch.cuda.is_available() else "cpu"))
         self.image_size = image_size
-        if isinstance(model, LofopDetect):
+        if isinstance(model, _DETECTOR_TYPES):
             self.model = model
         else:
             cfg = _resolve_model_spec(model)
@@ -148,6 +155,12 @@ class Detector:
             f"class_{i}" for i in range(self.model.head.num_classes)
         ]
         if nms_mode is not None:
+            if isinstance(self.model, LofopQuery):
+                raise ModelError(
+                    "nms_mode does not apply to the NMS-free query variants; "
+                    "they never run a suppression pass",
+                    context={"model": type(self.model).__name__},
+                )
             if nms_mode not in LofopDetect._NMS_MODES:
                 raise ModelError(
                     "Unknown nms_mode",
@@ -244,6 +257,67 @@ class Detector:
                 (self.image_size, self.image_size), Image.BILINEAR
             )
         return image_to_tensor(resized), size
+
+    def track(
+        self,
+        source: Iterable[ImageSource],
+        *,
+        score_threshold: float = 0.1,
+        strong_threshold: float = 0.5,
+        weak_threshold: float = 0.1,
+        max_cost: float = 0.8,
+        grace_frames: int = 30,
+        confirm_after: int = 3,
+        class_aware: bool = True,
+        tracker: Any = None,
+    ) -> Iterator[Detections]:
+        """Detect and track objects across a sequence of frames.
+
+        Runs :meth:`predict` on each frame and feeds the results to
+        :class:`~lofop.tracking.LofopTracker`, which assigns persistent
+        identities using a Kalman motion model and IoU association on
+        LOFOP's native kernel.
+
+        Args:
+            source: An iterable of frames -- file paths, PIL images, or CHW
+                tensors. A list of image paths or a frame generator both
+                work; LOFOP does not decode video itself, so pass frames
+                from whichever reader you already use.
+            score_threshold: Detection threshold for the underlying model.
+                Defaults below ``strong_threshold`` on purpose: the tracker's
+                weak tier needs the low-confidence tail to sustain tracks
+                through occlusion, and discards it otherwise.
+            strong_threshold: Detections at or above this can open new tracks.
+            weak_threshold: Detections above this but below
+                ``strong_threshold`` may only continue existing tracks.
+            max_cost: Association ceiling as ``1 - IoU``.
+            grace_frames: Frames a track survives unmatched before ending.
+            confirm_after: Matching frames before a new track is reported.
+            class_aware: Forbid associations across different classes.
+            tracker: Optional preconfigured tracker; when given, the tuning
+                arguments above are ignored.
+
+        Yields:
+            One :class:`~lofop.deploy.postprocess.Detections` per frame with
+            ``tracker_ids`` populated, holding the confirmed tracks.
+
+        Requires the tracking extra (``pip install "lofop[tracking]"``).
+        """
+        from lofop.tracking.supervision_bridge import tracks_to_detections
+        from lofop.tracking.tracker import LofopTracker
+
+        engine = tracker or LofopTracker(
+            strong_threshold=strong_threshold,
+            weak_threshold=weak_threshold,
+            max_cost=max_cost,
+            grace_frames=grace_frames,
+            confirm_after=confirm_after,
+            class_aware=class_aware,
+        )
+        for frame in source:
+            [detections] = self.predict(frame, score_threshold=score_threshold)
+            tracks = engine.update(detections.boxes, detections.scores, detections.labels)
+            yield tracks_to_detections(tracks)
 
     # -- training / evaluation ----------------------------------------------
 
@@ -356,6 +430,11 @@ class Detector:
         """
         from lofop.deploy import export_onnx, export_tensorrt
 
+        if isinstance(self.model, LofopQuery):
+            raise LofopError(
+                "ONNX/TensorRT export does not yet cover the NMS-free query "
+                "variants; use a dense variant or export the module directly"
+            )
         path = Path(path)
         fmt = format or ("tensorrt" if path.suffix == ".engine" else "onnx")
         kwargs.setdefault("image_size", self.image_size)

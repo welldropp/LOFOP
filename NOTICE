@@ -1,0 +1,56 @@
+LOFOP (Looking For Object Point)
+Copyright 2026 DURGAMANI SASIKUMAR and Nishanandhini A.
+
+Licensed under the Apache License, Version 2.0. See LICENSE for the full
+text.
+
+================================================================================
+Third-party code
+================================================================================
+
+LOFOP contains no third-party source code.
+
+Every component in this repository -- the LOFOP-Detect model family
+(RidgeNet, SwiftNet, DeltaFusion, ApexHead, StencilHead, VertexHead,
+SlateHead), the native C++ and CUDA kernels, the assignment solver, the
+tracking subsystem (motion model, association, tracker), the data subsystem,
+the training engine, and the deployment path -- is an original implementation
+written for this project.
+
+Where LOFOP implements a published algorithm or a standard mathematical
+method, it does so from the mathematics or the published description, not by
+adapting another project's source. Such methods are not themselves
+copyrightable; the implementations here are LOFOP's own expression of them.
+This applies in particular to:
+
+  * the recursive linear estimator ("Kalman filter") in lofop/tracking/motion.py,
+    implemented from the standard predict/correct equations with LOFOP's own
+    state parameterisation, naming, and noise model;
+  * the assignment problem solver in lofop/ops/assignment.py, implemented from
+    the shortest-augmenting-path formulation;
+  * standard convolutional patterns (depthwise separable convolution,
+    inverted residual blocks, squeeze-and-excitation gating, feature pyramid
+    fusion, focal loss, GIoU), which are published techniques implemented
+    here directly.
+
+================================================================================
+Optional runtime dependencies
+================================================================================
+
+LOFOP does not bundle, vendor, or redistribute any of the following. They are
+optional extras installed by the user, and remain under their own licences:
+
+  PyYAML          MIT
+  Pillow          MIT-CMU
+  PyTorch         BSD-3-Clause          (extra: models)
+  numpy           BSD-3-Clause          (extras: tracking, supervision)
+  onnx            Apache-2.0            (extra: deploy)
+  onnxruntime     MIT                   (extra: deploy)
+  tensorboard     Apache-2.0            (extra: tensorboard)
+  TensorRT        NVIDIA proprietary    (extra: tensorrt)
+  rich            MIT                   (extra: rich)
+  supervision     MIT                   (extra: supervision)
+
+The supervision integration in lofop/tracking/supervision_bridge.py converts
+between LOFOP's own data structures and supervision's, using only that
+library's documented public API. No supervision source code is included.

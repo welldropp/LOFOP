@@ -14,12 +14,13 @@ modern computer-vision engineering practices while remaining self-contained.
 > C++ / optional CUDA), the LOFOP-Detect family (detection + segmentation + pose
 > variants), training engine (schedulers, early stopping, strong augmentation), full
 > CLI, Python SDK, and verified ONNX (fixed + dynamic shapes) / TensorRT export.
-> 316 tests passing with a coverage-gated CI. See
+> 446 tests passing with a coverage-gated CI. See
 > [`docs/architecture.md`](docs/architecture.md) for the subsystem map and
 > [`CHANGELOG.md`](CHANGELOG.md) for release history.
 
-📖 **New here? Read the [Operator's Manual](MANUAL.md)** — a complete, step-by-step guide to
-installing, training, exporting, deploying, and troubleshooting LOFOP.
+📖 **New here?** Read the [Operator's Manual](MANUAL.md) for installing, training, exporting
+and troubleshooting — or the **[SDK Book](SDK_BOOK.md)** for the complete Python API, from
+your first detection through tracking, NMS-free models, deployment and extending LOFOP.
 
 ## What works today
 
@@ -36,6 +37,18 @@ installing, training, exporting, deploying, and troubleshooting LOFOP.
 - **Pose estimation** — `lofop-detect-{n,s,ex}-pose`: an offset-based keypoint branch
   (VertexHead, `num_keypoints` configurable); trains from COCO keypoints and attaches
   per-detection `(x, y, visibility)` skeletons.
+- **NMS-free detection** — `lofop-detect-{q-n,q-s}`: a fixed slate of query slots
+  (SlateHead) matched one-to-one with ground truth during training, so inference emits
+  one box per object and runs **no suppression pass at all**. Post-processing cost stops
+  depending on scene density.
+- **Edge backbone** — `backbone/SwiftNet`: inverted residuals with squeeze-excite on the
+  deepest stages and ReLU6 for clean INT8 quantisation. Variants `mb-n`, `mb-s`, `mbq-n`.
+- **Tracking** — `Detector.track(frames)` assigns persistent identities using an original
+  constant-velocity Kalman filter over `[cx, cy, w, h]` and IoU association running on
+  LOFOP's native kernel. Confidence-tiered: low-confidence detections sustain tracks
+  through occlusion but never create them. Opt-in: `pip install "lofop[tracking]"`.
+- **supervision bridge** — `detections.to_supervision()` hands LOFOP output to the
+  supervision ecosystem through its public API; nothing is vendored.
 - **Python SDK** — `from lofop import Detector`: build, train, predict (boxes in original image
   coordinates), evaluate, and export through one documented class. Full reference:
   [`docs/sdk.md`](docs/sdk.md).
@@ -81,6 +94,8 @@ Optional feature sets (extras):
 pip install "lofop[models]"      # + PyTorch, for lofop.models / lofop.training
 pip install "lofop[deploy]"      # + onnx, onnxruntime, for ONNX export
 pip install "lofop[tensorboard]" # + tensorboard, for the training hook
+pip install "lofop[tracking]"    # + numpy, for Detector.track and lofop.tracking
+pip install "lofop[supervision]" # + supervision, for the ecosystem bridge
 pip install "lofop[all]"         # models + deploy + tensorboard in one go
 python -c "from lofop.ops import build_native; build_native()"   # optional C++ fast path
 ```
@@ -133,6 +148,13 @@ det.train(data_format="coco", train_source="train.json", image_root="images/", e
 for hit in det.predict("photo.jpg"):                  # boxes in original image coordinates
     print(hit.boxes, hit.scores, hit.labels)
 det.export("model.onnx")
+
+# NMS-free variant: no suppression pass runs at inference
+nms_free = Detector("lofop-detect-q-n", num_classes=2)
+
+# Tracking across frames (pip install "lofop[tracking]")
+for frame in det.track(frame_paths):
+    print(frame.tracker_ids, frame.boxes)
 ```
 
 **Deploy in C++ or Python** — one exported model, two runtimes ([full guide](docs/cpp-sdk.md)):
@@ -179,7 +201,8 @@ lofop/
   models/        # LOFOP-Detect: RidgeNet, DeltaFusion, ApexHead, losses, assigner
   training/      # trainer, EMA, checkpoints, torch data bridge, COCO-protocol evaluator
   deploy/        # ONNX + TensorRT export, torch-free post-processing
-  ops/ + csrc/   # native C++ IoU/NMS with Python fallback
+  ops/ + csrc/   # native C++/CUDA IoU, NMS, Soft-NMS, decode + assignment solver
+  tracking/      # Kalman motion model, IoU association, LofopTracker (opt-in extra)
   utils/         # model benchmarking (metric table, FLOPs, FPS)
   sdk.py         # high-level Python SDK: the Detector class (docs/sdk.md)
   runtime/       # torch-free ONNX inference: Detector, Detection, Image
@@ -192,7 +215,7 @@ docker/          # CPU, CUDA, and ONNX Runtime images
 docs/            # architecture, per-module references, LOFOP-Detect design doc
 benchmarks/      # reusable performance measurement scripts
 examples/        # end-to-end runnable demos
-tests/           # pytest suite mirroring the package layout (316 tests)
+tests/           # pytest suite mirroring the package layout (446 tests)
 ```
 
 ## Development
@@ -219,8 +242,9 @@ vulnerabilities. Bug reports and feature requests use the issue templates.
 ## Roadmap
 
 Ordered by expected return: published pretrained checkpoints (GPU training runs),
-letterboxing, a torch-free tracking module, ONNX export for the segmentation/pose variants,
-then inference sources (video/RTSP/webcam), OpenVINO engines, and REST serving. The full
+letterboxing, mask/keypoint evaluation metrics, ONNX export for the query and
+segmentation/pose variants, then inference sources (video/RTSP/webcam), OpenVINO
+engines, and REST serving. The full
 subsystem map with per-phase status lives in [`docs/architecture.md`](docs/architecture.md).
 
 ## Authors
